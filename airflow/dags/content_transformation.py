@@ -561,7 +561,8 @@ def _parse_vllm_chat_response(resp_json: Dict[str, Any]) -> Tuple[str, int, int,
     if not choices:
         raise ValueError("Empty choices in vLLM response")
 
-    message = choices.get("message") or {}
+    # ИСПРАВЛЕНО: choices - это список, берём первый элемент
+    message = choices[0].get("message") or {}
     text = (message.get("content") or "").strip()
 
     usage = resp_json.get("usage") or {}
@@ -569,7 +570,6 @@ def _parse_vllm_chat_response(resp_json: Dict[str, Any]) -> Tuple[str, int, int,
     completion_tokens = int(usage.get("completion_tokens") or 0)
     total_tokens = int(usage.get("total_tokens") or (prompt_tokens + completion_tokens))
     return text, prompt_tokens, completion_tokens, total_tokens
-
 
 def call_vllm_with_retry(prompt: str) -> Optional[str]:
     """
@@ -653,9 +653,10 @@ def merge_enhanced_chunks(chunks: List[str]) -> str:
         if not chunks:
             return ""
         if len(chunks) == 1:
-            return chunks  # фикс: раньше возвращался список
+            return chunks[0]  # ИСПРАВЛЕНО: возвращаем строку, не список
 
-        merged_content = chunks  # фикс: начинать со строки, не со списка
+        # ИСПРАВЛЕНО: начинаем со строки, не со списка
+        merged_content = chunks[0]
         for i in range(1, len(chunks)):
             chunk = chunks[i]
             overlap_removed = remove_chunk_overlap(merged_content, chunk)
@@ -668,7 +669,6 @@ def merge_enhanced_chunks(chunks: List[str]) -> str:
     except Exception as e:
         logger.error(f"Ошибка объединения чанков: {e}")
         return '\n\n'.join(chunks)
-
 
 def remove_chunk_overlap(content1: str, content2: str) -> str:
     try:
