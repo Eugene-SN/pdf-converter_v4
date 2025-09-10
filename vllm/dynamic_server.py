@@ -26,12 +26,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 # Pydantic модели
 class ChatMessage(BaseModel):
     role: str = Field(..., description="Роль: system, user, assistant")
     content: str = Field(..., description="Содержание сообщения")
-
 
 class ChatCompletionRequest(BaseModel):
     model: str = Field(..., description="Название модели")
@@ -43,10 +41,8 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = Field(False)
     task_type: Optional[str] = Field(None, description="Тип задачи для выбора модели")
 
-
 class ModelSwapRequest(BaseModel):
     model_key: str = Field(..., description="Ключ модели для загрузки")
-
 
 # Lifespan
 @asynccontextmanager
@@ -65,7 +61,6 @@ async def lifespan(app: FastAPI):
         await model_manager.unload_current_model()
     logger.info("✅ Dynamic vLLM Server остановлен")
 
-
 # FastAPI app
 app = FastAPI(
     title="Dynamic vLLM Server",
@@ -81,7 +76,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 def determine_task_type_from_messages(messages: List[ChatMessage]) -> TaskType:
     """Определение типа задачи по содержанию сообщений"""
@@ -101,7 +95,6 @@ def determine_task_type_from_messages(messages: List[ChatMessage]) -> TaskType:
     except Exception as e:
         logger.warning(f"Ошибка определения типа задачи: {e}")
         return TaskType.CONTENT_TRANSFORMATION
-
 
 @app.post("/v1/chat/completions")
 async def create_chat_completion(request: ChatCompletionRequest):
@@ -172,10 +165,19 @@ async def create_chat_completion(request: ChatCompletionRequest):
         if final_output is None or not final_output.outputs:
             raise HTTPException(status_code=500, detail="No output generated")
 
-        # Берём первый выход и считаем токены безопасно
-        generated_text = (final_output.outputs[0].text or "").strip() 
-        prompt_tokens = len(final_output.prompt[0].token_ids or [])
-        completion_tokens = len(final_output.outputs[0].token_ids or [])
+        # ИСПРАВЛЕНО: правильное обращение к полям vLLM RequestOutput
+        generated_text = (final_output.outputs[0].text or "").strip()
+        
+        # ИСПРАВЛЕНО: prompt_token_ids - это список, не массив объектов
+        prompt_tokens = len(final_output.prompt_token_ids or [])
+        
+        # ИСПРАВЛЕНО: безопасное получение token_ids из CompletionOutput
+        try:
+            completion_tokens = len(final_output.outputs[0].token_ids or [])
+        except (AttributeError, TypeError):
+            # Fallback если token_ids недоступен
+            completion_tokens = max(1, len(generated_text.split()) // 4)  # приблизительная оценка
+            
         total_tokens = prompt_tokens + completion_tokens
         processing_time = time.time() - start_time
 
@@ -215,7 +217,6 @@ async def create_chat_completion(request: ChatCompletionRequest):
         logger.error(f"❌ Ошибка генерации: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка генерации: {str(e)}")
 
-
 @app.post("/v1/models/swap")
 async def swap_model(request: ModelSwapRequest):
     """Принудительная смена модели"""
@@ -246,7 +247,6 @@ async def swap_model(request: ModelSwapRequest):
         logger.error(f"❌ Ошибка смены модели: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/v1/models")
 async def list_models():
     """Список доступных моделей"""
@@ -275,7 +275,6 @@ async def list_models():
         })
     return {"object": "list", "data": models_list}
 
-
 @app.get("/v1/models/status")
 async def models_status():
     """Детальный статус системы моделей"""
@@ -288,7 +287,6 @@ async def models_status():
             "gpu_type": "NVIDIA A6000",
         },
     }
-
 
 @app.get("/health")
 async def health_check():
@@ -309,7 +307,6 @@ async def health_check():
         content=response,
         status_code=200 if is_healthy else 503,
     )
-
 
 @app.get("/metrics")
 async def metrics():
@@ -332,7 +329,6 @@ async def metrics():
         content="\n".join(metrics_lines),
         media_type="text/plain",
     )
-
 
 if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
